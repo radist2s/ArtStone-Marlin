@@ -3743,6 +3743,29 @@
 #endif
 
 /**
+ * Vertical Feeder Command - M420
+ * 
+ * Controls vertical feeder for automated artwork sales system.
+ * Uses E0 motor to move the platform vertically (Z-axis motion).
+ * Dispenses individual art pieces drawn on paper to customers.
+ * Sensors detect safe movement limits.
+ * 
+ * Requires FILAMENT_RUNOUT_SENSOR and NUM_RUNOUT_SENSORS >= 2
+ * 
+ * Usage:
+ *   M420U        - Move UP using sensor 1, stop when TRIGGERED
+ *   M420D        - Move DOWN using sensor 2, stop when TRIGGERED
+ *   M420U S100   - Move up max 100mm (default 500mm)
+ *   M420D F300   - Move down at 300mm/min (default 200mm/min)
+ * 
+ * Logic:
+ *   - Sensor must be 'open' at start (safe to move)
+ *   - Continue moving while sensor is 'open'
+ *   - Stop when sensor becomes 'TRIGGERED' (limit reached)
+ */
+#define VERTICAL_FEEDER_COMMAND
+
+/**
  * User-defined menu items to run custom G-code.
  * Up to 25 may be defined, but the actual number is LCD-dependent.
  */

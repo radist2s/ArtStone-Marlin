@@ -1067,6 +1067,10 @@ void GcodeSuite::process_parsed_command(const bool no_ok/*=false*/) {
         case 995: M995(); break;                                  // M995: Touch screen calibration for TFT display
       #endif
 
+      #if ENABLED(VERTICAL_FEEDER_COMMAND)
+        case 420: M420(); break;                                  // M420: Vertical feeder control
+      #endif
+
       #if ENABLED(PLATFORM_M997_SUPPORT)
         case 997: M997(); break;                                  // M997: Perform in-application firmware update
       #endif

@@ -764,6 +764,10 @@ private:
   static void M120();
   static void M121();
 
+  #if ENABLED(VERTICAL_FEEDER_COMMAND)
+    static void M420();
+  #endif
+
   #if HAS_FANCHECK
     static void M123();
   #endif
