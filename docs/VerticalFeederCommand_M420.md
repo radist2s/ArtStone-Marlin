@@ -77,11 +77,18 @@ M420D F300      ; Move down at 300mm/min
 
 ### Successful Operation
 
+Each command outputs **two lines** per status update: machine-readable status code and human-readable message.
+
 ```
-echo:M420: Moving feeder UP, sensor 1...
+M420_STATUS:START:UP:0.0:S1:OPEN
+echo:M420: Starting UP movement, sensor 1
+M420_STATUS:PROGRESS:UP:10.0:S1:OPEN
 echo:M420: 10.0mm, sensor 1: ok
+M420_STATUS:PROGRESS:UP:20.0:S1:OPEN
 echo:M420: 20.0mm, sensor 1: ok
+M420_STATUS:PROGRESS:UP:30.0:S1:OPEN
 echo:M420: 30.0mm, sensor 1: ok
+M420_STATUS:COMPLETE:UP:34.0:S1:TRIGGERED
 echo:M420: Complete! Moved 34.0mm, limit reached
 ok
 ```
@@ -89,11 +96,16 @@ ok
 ### Maximum Distance Reached
 
 ```
-echo:M420: Moving feeder DOWN, sensor 2...
+M420_STATUS:START:DOWN:0.0:S2:OPEN
+echo:M420: Starting DOWN movement, sensor 2
+M420_STATUS:PROGRESS:DOWN:10.0:S2:OPEN
 echo:M420: 10.0mm, sensor 2: ok
+M420_STATUS:PROGRESS:DOWN:20.0:S2:OPEN
 echo:M420: 20.0mm, sensor 2: ok
 ...
+M420_STATUS:PROGRESS:DOWN:500.0:S2:OPEN
 echo:M420: 500.0mm, sensor 2: ok
+M420_STATUS:MAX_DIST:DOWN:500.0:S2:OPEN
 echo:M420: Max distance reached (500.0mm), limit not reached
 ok
 ```
@@ -102,13 +114,144 @@ ok
 
 ```
 // Sensor already at limit
+M420_STATUS:ERROR:SENSOR_BLOCKED
 Error:M420: Sensor already at limit
 
 // Direction not specified
+M420_STATUS:ERROR:NO_DIRECTION
 Error:M420: Specify U (up) or D (down)
 
 // Sensors not configured
+M420_STATUS:ERROR:INSUFFICIENT_SENSORS
 Error:M420: Requires 2 sensors
+```
+
+## Machine-Readable Status Codes
+
+M420 outputs structured status codes for easy parsing by external systems (displays, controllers, logging systems).
+
+### Output Format
+
+Each operation outputs **two lines** for each status update:
+
+1. **Machine-readable line:** `M420_STATUS:<CODE>:<DIRECTION>:<DISTANCE>:<SENSOR>:<STATE>`
+2. **Human-readable line:** `echo: M420: <message>`
+
+### Status Codes
+
+| Code | Description | Example |
+|------|-------------|---------|
+| `START` | Movement started | `M420_STATUS:START:UP:0.0:S1:OPEN` |
+| `PROGRESS` | Movement in progress | `M420_STATUS:PROGRESS:UP:10.0:S1:OPEN` |
+| `COMPLETE` | Limit reached successfully | `M420_STATUS:COMPLETE:UP:50.5:S1:TRIGGERED` |
+| `MAX_DIST` | Max distance reached | `M420_STATUS:MAX_DIST:UP:500.0:S1:OPEN` |
+| `ERROR` | Error occurred | `M420_STATUS:ERROR:SENSOR_BLOCKED` |
+
+### Error Codes
+
+| Code | Meaning |
+|------|---------|
+| `NO_SENSORS` | Filament sensors not enabled |
+| `INSUFFICIENT_SENSORS` | Less than 2 sensors configured |
+| `NO_DIRECTION` | No U or D parameter specified |
+| `BOTH_DIRECTIONS` | Both U and D specified (invalid) |
+| `SENSOR_BLOCKED` | Sensor already at limit (can't start) |
+| `USER_INTERRUPT` | User interrupted the operation |
+
+### Example Output
+
+**Successful UP movement:**
+```
+M420_STATUS:START:UP:0.0:S1:OPEN
+echo: M420: Starting UP movement, sensor 1
+M420_STATUS:PROGRESS:UP:10.0:S1:OPEN
+echo: M420: 10.0mm, sensor 1: ok
+M420_STATUS:PROGRESS:UP:20.0:S1:OPEN
+echo: M420: 20.0mm, sensor 1: ok
+M420_STATUS:COMPLETE:UP:45.5:S1:TRIGGERED
+echo: M420: Complete! Moved 45.5mm, limit reached
+```
+
+**Error example:**
+```
+M420_STATUS:ERROR:SENSOR_BLOCKED
+Error:M420: Sensor already at limit
+```
+
+### Parsing Example (Python)
+
+```python
+import re
+
+def parse_m420_status(line):
+    """Parse M420 status line"""
+    match = re.match(r'M420_STATUS:(\w+):(\w+):([\d.]+):S(\d):(\w+)', line)
+    if match:
+        return {
+            'code': match.group(1),      # START, PROGRESS, COMPLETE, etc.
+            'direction': match.group(2),  # UP or DOWN
+            'distance': float(match.group(3)),
+            'sensor': int(match.group(4)),
+            'state': match.group(5)       # OPEN or TRIGGERED
+        }
+    
+    # Check for error
+    match = re.match(r'M420_STATUS:ERROR:(\w+)', line)
+    if match:
+        return {
+            'code': 'ERROR',
+            'error_type': match.group(1)
+        }
+    
+    return None
+
+# Usage example
+status = parse_m420_status("M420_STATUS:PROGRESS:UP:10.0:S1:OPEN")
+print(status)
+# Output: {'code': 'PROGRESS', 'direction': 'UP', 'distance': 10.0, 'sensor': 1, 'state': 'OPEN'}
+```
+
+### Parsing Example (JavaScript/TypeScript)
+
+```typescript
+interface M420Status {
+  code: 'START' | 'PROGRESS' | 'COMPLETE' | 'MAX_DIST' | 'ERROR';
+  direction?: 'UP' | 'DOWN';
+  distance?: number;
+  sensor?: number;
+  state?: 'OPEN' | 'TRIGGERED';
+  errorType?: string;
+}
+
+function parseM420Status(line: string): M420Status | null {
+  // Parse regular status
+  const statusMatch = line.match(/M420_STATUS:(\w+):(\w+):([\d.]+):S(\d):(\w+)/);
+  if (statusMatch) {
+    return {
+      code: statusMatch[1] as M420Status['code'],
+      direction: statusMatch[2] as 'UP' | 'DOWN',
+      distance: parseFloat(statusMatch[3]),
+      sensor: parseInt(statusMatch[4]),
+      state: statusMatch[5] as 'OPEN' | 'TRIGGERED'
+    };
+  }
+  
+  // Parse error
+  const errorMatch = line.match(/M420_STATUS:ERROR:(\w+)/);
+  if (errorMatch) {
+    return {
+      code: 'ERROR',
+      errorType: errorMatch[1]
+    };
+  }
+  
+  return null;
+}
+
+// Usage
+const status = parseM420Status("M420_STATUS:PROGRESS:UP:10.0:S1:OPEN");
+console.log(status);
+// Output: { code: 'PROGRESS', direction: 'UP', distance: 10, sensor: 1, state: 'OPEN' }
 ```
 
 ## Building

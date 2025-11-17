@@ -47,6 +47,41 @@ inline bool read_feeder_sensor(const uint8_t sensor_num) {
   return false;
 }
 
+// Status codes for machine-readable output
+// Format: M420_STATUS:<CODE>:<DIRECTION>:<DATA>
+// Allows easy parsing while maintaining human readability
+inline void report_m420_status(const char* code, const char* direction, 
+                                const float distance, const uint8_t sensor, 
+                                const bool sensor_state, const char* message) {
+  // Machine-readable status line
+  SERIAL_ECHOPGM("M420_STATUS:");
+  SERIAL_ECHOPGM(code);
+  SERIAL_ECHOPGM(":");
+  SERIAL_ECHOPGM(direction);
+  SERIAL_ECHOPGM(":");
+  SERIAL_ECHO(distance);
+  SERIAL_ECHOPGM(":S");
+  SERIAL_ECHO(sensor);
+  SERIAL_ECHOPGM(":");
+  SERIAL_ECHOPGM(sensor_state ? "TRIGGERED" : "OPEN");
+  SERIAL_EOL();
+  
+  // Human-readable echo message
+  SERIAL_ECHO_START();
+  SERIAL_ECHOPGM("M420: ");
+  SERIAL_ECHOLN(message);
+}
+
+// Simplified error reporting
+inline void report_m420_error(const char* code, const char* message) {
+  SERIAL_ECHOPGM("M420_STATUS:ERROR:");
+  SERIAL_ECHOPGM(code);
+  SERIAL_EOL();
+  SERIAL_ERROR_START();
+  SERIAL_ECHOPGM("M420: ");
+  SERIAL_ECHOLN(message);
+}
+
 #endif // HAS_FILAMENT_SENSOR
 
 /**
@@ -75,10 +110,10 @@ inline bool read_feeder_sensor(const uint8_t sensor_num) {
  */
 void GcodeSuite::M420() {
   #if !HAS_FILAMENT_SENSOR
-    SERIAL_ERROR_MSG("M420: Sensors not enabled");
+    report_m420_error("NO_SENSORS", "Sensors not enabled");
     return;
   #elif NUM_RUNOUT_SENSORS < 2
-    SERIAL_ERROR_MSG("M420: Requires 2 sensors");
+    report_m420_error("INSUFFICIENT_SENSORS", "Requires 2 sensors");
     return;
   #else
 
@@ -101,12 +136,12 @@ void GcodeSuite::M420() {
   }
   
   if (!move_up && !move_down) {
-    SERIAL_ERROR_MSG("M420: Specify U (up) or D (down)");
+    report_m420_error("NO_DIRECTION", "Specify U (up) or D (down)");
     return;
   }
   
   if (move_up && move_down) {
-    SERIAL_ERROR_MSG("M420: Cannot specify both U and D");
+    report_m420_error("BOTH_DIRECTIONS", "Cannot specify both U and D");
     return;
   }
   
@@ -131,8 +166,10 @@ void GcodeSuite::M420() {
   
   // Check initial sensor state - MUST be open (safe to move)
   bool sensor_state = read_feeder_sensor(sensor_num);
+  const char* direction = move_up ? "UP" : "DOWN";
+  
   if (sensor_state) {  // If TRIGGERED (at limit)
-    SERIAL_ERROR_MSG("M420: Sensor already at limit");
+    report_m420_error("SENSOR_BLOCKED", "Sensor already at limit");
     return;
   }
   
@@ -140,12 +177,10 @@ void GcodeSuite::M420() {
   float moved_distance = 0.0f;
   uint8_t status_counter = 0;
   
-  SERIAL_ECHO_START();
-  SERIAL_ECHOPGM("M420: Moving feeder ");
-  SERIAL_ECHOPGM(move_up ? "UP" : "DOWN");
-  SERIAL_ECHOPGM(", sensor ");
-  SERIAL_ECHO(sensor_num);
-  SERIAL_ECHOLNPGM("...");
+  // Report start
+  char start_msg[64];
+  sprintf(start_msg, "Starting %s movement, sensor %d", direction, sensor_num);
+  report_m420_status("START", direction, 0.0f, sensor_num, sensor_state, start_msg);
   
   while (moved_distance < max_distance) {
     // Set destination
@@ -166,39 +201,37 @@ void GcodeSuite::M420() {
     
     // Status update every ~10mm
     if (++status_counter >= 5) {
-      SERIAL_ECHO_START();
-      SERIAL_ECHOPGM("M420: ");
-      SERIAL_ECHO(moved_distance);
-      SERIAL_ECHOPGM("mm, sensor ");
-      SERIAL_ECHO(sensor_num);
-      SERIAL_ECHOPGM(": ");
-      SERIAL_ECHOLN(sensor_state ? "LIMIT" : "ok");
+      char progress_msg[64];
+      sprintf(progress_msg, "%.1fmm, sensor %d: %s", moved_distance, sensor_num, 
+              sensor_state ? "LIMIT" : "ok");
+      report_m420_status("PROGRESS", direction, moved_distance, sensor_num, 
+                        sensor_state, progress_msg);
       status_counter = 0;
     }
     
     // Stop if sensor reached limit
     if (sensor_state) {
-      SERIAL_ECHO_START();
-      SERIAL_ECHOPGM("M420: Complete! Moved ");
-      SERIAL_ECHO(moved_distance);
-      SERIAL_ECHOLNPGM("mm, limit reached");
+      char complete_msg[64];
+      sprintf(complete_msg, "Complete! Moved %.1fmm, limit reached", moved_distance);
+      report_m420_status("COMPLETE", direction, moved_distance, sensor_num, 
+                        sensor_state, complete_msg);
       return;
     }
     
     // Check for user interrupt
     #if HAS_RESUME_CONTINUE
       if (wait_for_user) {
-        SERIAL_ERROR_MSG("M420: Interrupted by user");
+        report_m420_error("USER_INTERRUPT", "Interrupted by user");
         return;
       }
     #endif
   }
   
   // Reached max distance without reaching limit
-  SERIAL_ECHO_START();
-  SERIAL_ECHOPGM("M420: Max distance reached (");
-  SERIAL_ECHO(max_distance);
-  SERIAL_ECHOLNPGM("mm), limit not reached");
+  char max_dist_msg[64];
+  sprintf(max_dist_msg, "Max distance reached (%.1fmm), limit not reached", max_distance);
+  report_m420_status("MAX_DIST", direction, moved_distance, sensor_num, 
+                    sensor_state, max_dist_msg);
 
   #endif // NUM_RUNOUT_SENSORS >= 2
 }
